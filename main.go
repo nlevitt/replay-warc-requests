@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"bufio"
 )
 
 func usage() {
@@ -21,14 +22,35 @@ type Warc struct {
 	reader *warc.Reader
 }
 
+func replayRequest(record *warc.Record, proxy string) {
+	record.Header.Get("warc-target-uri")
+	scanner := bufio.NewScanner(record.Content)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	// reqHeaders = make(map[string]string)
+	// for {
+	// 	line, err := r.record.Content.readLine()
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 		os.Exit(1)
+	// 	}
+	// }
+}
+
 func replayRequests(w Warc, proxy string, wg sync.WaitGroup) {
 	defer wg.Done()
 	for {
-		offset, err := w.file.Seek(0, os.SEEK_CUR)
-		if err == io.EOF {
-			log.Fatal(err)
-			os.Exit(1)
-		}
+		// offset, err := w.file.Seek(0, os.SEEK_CUR)
+		// if err == io.EOF {
+		// 	log.Fatal(err)
+		// 	os.Exit(1)
+		// }
 		record, err := w.reader.ReadRecord()
 		if err == io.EOF {
 			log.Println("finished!")
@@ -38,12 +60,16 @@ func replayRequests(w Warc, proxy string, wg sync.WaitGroup) {
 			log.Fatal(err)
 			os.Exit(1)
 		}
-		// log.Printf("offset=%v format=%v type=%v len(headers)=%v url=%v warc=%v\n", offset, record.Format, record.Type, len(record.Headers), record.Headers.Get("Warc-Target-Uri"), w.name)
+		/*
 		log.Printf("offset=%v len(headers)=%v type=%v url=%v warc=%v\n",
 			offset, len(record.Header),
 			record.Header.Get("warc-type"),
 			record.Header.Get("warc-target-uri"),
 			w.name)
+			*/
+		if record.Header.Get("warc-type") == "request" {
+			replayRequest(record, proxy)
+		}
 	}
 }
 
