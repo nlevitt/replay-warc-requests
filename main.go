@@ -5,13 +5,30 @@ import (
 	"os"
 	"github.com/datatogether/warc"
 	"log"
-	// "io"
+	"io"
 	"fmt"
+	"sync"
 )
 
 func usage() {
 	fmt.Printf("Usage: %s [OPTIONS] WARCFILE...\n", os.Args[0])
 	flag.PrintDefaults()
+}
+
+func replayRequests(r *warc.Reader, proxy string, wg sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			log.Println("finished!")
+			os.Exit(0)
+		}
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+		log.Printf("record type=%v\n", record.Type)
+	}
 }
 
 func main() {
@@ -24,9 +41,6 @@ func main() {
 	}
 
 	log.Println("proxy:", *proxyPtr)
-
-	// var warcFile = flag.Arg(0);
-	// log.Println("warcFile:", warcFile)
 
 	// open warcs for reading
 	readers := make([]*warc.Reader, flag.NArg())
@@ -44,31 +58,12 @@ func main() {
 		log.Printf("readers[%d]: %v", i, readers[i])
 	}
 
-	// iterate over records
-	/*
-	for {
-		record, err := r.Read()
-		if err == io.EOF {
-			log.Println("finished!")
-			os.Exit(0)
-		}
-		if err != nil {
-			log.Fatal(err)
-			os.Exit(1)
-		}
-		log.Println("record:", record)
+	var wg sync.WaitGroup
+	for i := 0; i < len(readers); i++ {
+		wg.Add(1)
+		go replayRequests(readers[i], *proxyPtr, wg)
 	}
-	*/
-
-	/*
-	records, err := r.ReadAll()
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
-	}
-	log.Println("len(records):", len(records))
-	*/
-
-
+	wg.Wait()
+	log.Println("all done")
 }
 
