@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 	"bufio"
+	"net/http"
 )
 
 func usage() {
@@ -24,23 +25,13 @@ type Warc struct {
 
 func replayRequest(record *warc.Record, proxy string) {
 	record.Header.Get("warc-target-uri")
-	scanner := bufio.NewScanner(record.Content)
-	for scanner.Scan() {
-		fmt.Println(scanner.Text())
-	}
-	if err := scanner.Err(); err != nil {
+	reader := bufio.NewReader(record.Content)
+	req, err := http.ReadRequest(reader)
+	if err != nil {
 		log.Fatal(err)
 		os.Exit(1)
 	}
-
-	// reqHeaders = make(map[string]string)
-	// for {
-	// 	line, err := r.record.Content.readLine()
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 		os.Exit(1)
-	// 	}
-	// }
+	fmt.Println("request:", req)
 }
 
 func replayRequests(w Warc, proxy string, wg sync.WaitGroup) {
