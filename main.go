@@ -2,11 +2,11 @@ package main
 
 import (
 	"flag"
-	"os"
-	"github.com/datatogether/warc"
-	"log"
-	"io"
 	"fmt"
+	"github.com/datatogether/warc"
+	"io"
+	"log"
+	"os"
 	"sync"
 )
 
@@ -15,10 +15,21 @@ func usage() {
 	flag.PrintDefaults()
 }
 
-func replayRequests(r *warc.Reader, proxy string, wg sync.WaitGroup) {
+type Warc struct {
+	name   string
+	file   *os.File
+	reader *warc.Reader
+}
+
+func replayRequests(w Warc, proxy string, wg sync.WaitGroup) {
 	defer wg.Done()
 	for {
-		record, err := r.Read()
+		offset, err := w.file.Seek(0, os.SEEK_CUR)
+		if err == io.EOF {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+		record, err := w.reader.Read()
 		if err == io.EOF {
 			log.Println("finished!")
 			os.Exit(0)
@@ -27,13 +38,13 @@ func replayRequests(r *warc.Reader, proxy string, wg sync.WaitGroup) {
 			log.Fatal(err)
 			os.Exit(1)
 		}
-		log.Printf("record type=%v\n", record.Type)
+		log.Printf("offset=%v format=%v type=%v len(headers)=%v url=%v warc=%v\n", offset, record.Format, record.Type, len(record.Headers), record.Headers.Get("Warc-Target-Uri"), w.name)
 	}
 }
 
 func main() {
 	var proxyPtr = flag.String("proxy", "", "http proxy host:port")
-        flag.Usage = usage
+	flag.Usage = usage
 	flag.Parse()
 	if flag.NArg() < 1 {
 		flag.Usage()
@@ -43,27 +54,26 @@ func main() {
 	log.Println("proxy:", *proxyPtr)
 
 	// open warcs for reading
-	readers := make([]*warc.Reader, flag.NArg())
+	warcs := make([]Warc, flag.NArg())
 	for i := 0; i < flag.NArg(); i++ {
-		f, err := os.Open(flag.Arg(i))
+		file, err := os.Open(flag.Arg(i))
 		if err != nil {
 		}
-		defer f.Close()
-		r, err := warc.NewReader(f)
+		defer file.Close()
+		reader, err := warc.NewReader(file)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
 		}
-		readers[i] = r
-		log.Printf("readers[%d]: %v", i, readers[i])
+		warcs[i] = Warc{flag.Arg(i), file, reader}
+		log.Printf("warcs[%d]: %v", i, warcs[i])
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < len(readers); i++ {
+	for i := 0; i < len(warcs); i++ {
 		wg.Add(1)
-		go replayRequests(readers[i], *proxyPtr, wg)
+		go replayRequests(warcs[i], *proxyPtr, wg)
 	}
 	wg.Wait()
 	log.Println("all done")
 }
-
