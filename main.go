@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"net/http"
 	"net/url"
+	"crypto/tls"
 )
 
 func usage() {
@@ -63,11 +64,6 @@ func replayRequests(client *http.Client, w Warc, wg sync.WaitGroup) {
 	defer wg.Done()
 
 	for {
-		// offset, err := w.file.Seek(0, os.SEEK_CUR)
-		// if err == io.EOF {
-		// 	log.Fatal(err)
-		// 	os.Exit(1)
-		// }
 		record, err := w.reader.ReadRecord()
 		if err == io.EOF {
 			log.Println("finished!")
@@ -77,13 +73,6 @@ func replayRequests(client *http.Client, w Warc, wg sync.WaitGroup) {
 			log.Fatal(err)
 			os.Exit(1)
 		}
-		/*
-		log.Printf("offset=%v len(headers)=%v type=%v url=%v warc=%v\n",
-			offset, len(record.Header),
-			record.Header.Get("warc-type"),
-			record.Header.Get("warc-target-uri"),
-			w.name)
-			*/
 		if record.Header.Get("warc-type") == "request" {
 			replayRequest(client, record)
 		}
@@ -102,11 +91,17 @@ func main() {
 	log.Println("proxy:", *proxyPtr)
 
 	// "Clients are safe for concurrent use by multiple goroutines."
+	transport :=  &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
 	client := &http.Client{
 		// https://stackoverflow.com/questions/23297520
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+		Transport: transport,
 		Jar: nil,
 	}
 	if *proxyPtr != "" {
@@ -115,10 +110,9 @@ func main() {
 			log.Fatal(err)
 			os.Exit(1)
 		}
-		client.Transport = &http.Transport{
-			Proxy: http.ProxyURL(proxyUrl),
-		}
+		transport.Proxy = http.ProxyURL(proxyUrl)
 	}
+	log.Printf("client.Transport: %+v", client.Transport)
 
 	// open warcs for reading
 	warcs := make([]Warc, flag.NArg())
