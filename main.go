@@ -10,6 +10,7 @@ import (
 	"sync"
 	"bufio"
 	"net/http"
+	"net/url"
 )
 
 func usage() {
@@ -23,19 +24,44 @@ type Warc struct {
 	reader *warc.Reader
 }
 
-func replayRequest(record *warc.Record, proxy string) {
-	record.Header.Get("warc-target-uri")
+func replayRequest(client *http.Client, record *warc.Record) {
 	reader := bufio.NewReader(record.Content)
 	req, err := http.ReadRequest(reader)
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(1)
 	}
-	fmt.Println("request:", req)
+	req.RequestURI = "" // "RequestURI can't be set in client requests"
+	req.URL, err = url.Parse(record.Header.Get("warc-target-uri"))
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	buf := make([]byte, 65536)
+	size := 0
+	for {
+		n, err := res.Body.Read(buf)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+		size += n
+	}
+	log.Printf("%v (%v bytes) %v %v\n", res.Status, size, req.Method, req.URL)
 }
 
-func replayRequests(w Warc, proxy string, wg sync.WaitGroup) {
+func replayRequests(client *http.Client, w Warc, wg sync.WaitGroup) {
 	defer wg.Done()
+
 	for {
 		// offset, err := w.file.Seek(0, os.SEEK_CUR)
 		// if err == io.EOF {
@@ -59,7 +85,7 @@ func replayRequests(w Warc, proxy string, wg sync.WaitGroup) {
 			w.name)
 			*/
 		if record.Header.Get("warc-type") == "request" {
-			replayRequest(record, proxy)
+			replayRequest(client, record)
 		}
 	}
 }
@@ -74,6 +100,25 @@ func main() {
 	}
 
 	log.Println("proxy:", *proxyPtr)
+
+	// "Clients are safe for concurrent use by multiple goroutines."
+	client := &http.Client{
+		// https://stackoverflow.com/questions/23297520
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Jar: nil,
+	}
+	if *proxyPtr != "" {
+		proxyUrl, err := url.Parse(*proxyPtr)
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+		client.Transport = &http.Transport{
+			Proxy: http.ProxyURL(proxyUrl),
+		}
+	}
 
 	// open warcs for reading
 	warcs := make([]Warc, flag.NArg())
@@ -94,7 +139,7 @@ func main() {
 	var wg sync.WaitGroup
 	for i := 0; i < len(warcs); i++ {
 		wg.Add(1)
-		go replayRequests(warcs[i], *proxyPtr, wg)
+		go replayRequests(client, warcs[i], wg)
 	}
 	wg.Wait()
 	log.Println("all done")
