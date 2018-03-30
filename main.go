@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/datatogether/warc"
+	"github.com/slyrz/warc"
 	"io"
 	"log"
 	"os"
@@ -29,7 +29,7 @@ func replayRequests(w Warc, proxy string, wg sync.WaitGroup) {
 			log.Fatal(err)
 			os.Exit(1)
 		}
-		record, err := w.reader.Read()
+		record, err := w.reader.ReadRecord()
 		if err == io.EOF {
 			log.Println("finished!")
 			os.Exit(0)
@@ -38,7 +38,12 @@ func replayRequests(w Warc, proxy string, wg sync.WaitGroup) {
 			log.Fatal(err)
 			os.Exit(1)
 		}
-		log.Printf("offset=%v format=%v type=%v len(headers)=%v url=%v warc=%v\n", offset, record.Format, record.Type, len(record.Headers), record.Headers.Get("Warc-Target-Uri"), w.name)
+		// log.Printf("offset=%v format=%v type=%v len(headers)=%v url=%v warc=%v\n", offset, record.Format, record.Type, len(record.Headers), record.Headers.Get("Warc-Target-Uri"), w.name)
+		log.Printf("offset=%v len(headers)=%v type=%v url=%v warc=%v\n",
+			offset, len(record.Header),
+			record.Header.Get("warc-type"),
+			record.Header.Get("warc-target-uri"),
+			w.name)
 	}
 }
 
