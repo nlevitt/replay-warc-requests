@@ -61,7 +61,7 @@ func replayRequest(client *http.Client, record *warc.Record, done chan bool) {
 	log.Printf("%v (%v bytes) %v %v\n", res.Status, size, req.Method, req.URL)
 }
 
-func replayRequests(client *http.Client, w Warc, wg sync.WaitGroup) {
+func replayRequests(client *http.Client, w Warc, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	activeRequests := 0
@@ -75,8 +75,7 @@ func replayRequests(client *http.Client, w Warc, wg sync.WaitGroup) {
 
 		record, err := w.reader.ReadRecord()
 		if err == io.EOF {
-			log.Println("finished!")
-			os.Exit(0)
+			break
 		}
 		if err != nil {
 			log.Fatal(err)
@@ -91,6 +90,7 @@ func replayRequests(client *http.Client, w Warc, wg sync.WaitGroup) {
 		<-done
 		activeRequests--
 	}
+	log.Println("finished replaying", w.name)
 }
 
 func httpClient(proxy string) (*http.Client) {
@@ -135,6 +135,8 @@ func main() {
 	for i := 0; i < flag.NArg(); i++ {
 		file, err := os.Open(flag.Arg(i))
 		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
 		}
 		defer file.Close()
 		reader, err := warc.NewReader(file)
@@ -143,13 +145,12 @@ func main() {
 			os.Exit(1)
 		}
 		warcs[i] = Warc{flag.Arg(i), file, reader}
-		log.Printf("warcs[%d]: %v", i, warcs[i])
 	}
 
 	var wg sync.WaitGroup
 	for i := 0; i < len(warcs); i++ {
 		wg.Add(1)
-		go replayRequests(client, warcs[i], wg)
+		go replayRequests(client, warcs[i], &wg)
 	}
 	wg.Wait()
 	log.Println("all done")
