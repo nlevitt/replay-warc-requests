@@ -25,7 +25,7 @@ type Warc struct {
 	reader *warc.Reader
 }
 
-func replayRequest(client *http.Client, record *warc.Record) {
+func replayRequest(client *http.Client, record *warc.Record, done chan bool) {
 	reader := bufio.NewReader(record.Content)
 	req, err := http.ReadRequest(reader)
 	if err != nil {
@@ -57,13 +57,22 @@ func replayRequest(client *http.Client, record *warc.Record) {
 		}
 		size += n
 	}
+	done <- true
 	log.Printf("%v (%v bytes) %v %v\n", res.Status, size, req.Method, req.URL)
 }
 
 func replayRequests(client *http.Client, w Warc, wg sync.WaitGroup) {
 	defer wg.Done()
 
+	activeRequests := 0
+	done := make(chan bool)
+
 	for {
+		if activeRequests >= 6 {
+			<-done
+			activeRequests--
+		}
+
 		record, err := w.reader.ReadRecord()
 		if err == io.EOF {
 			log.Println("finished!")
@@ -74,22 +83,17 @@ func replayRequests(client *http.Client, w Warc, wg sync.WaitGroup) {
 			os.Exit(1)
 		}
 		if record.Header.Get("warc-type") == "request" {
-			replayRequest(client, record)
+			activeRequests++
+			go replayRequest(client, record, done)
 		}
+	}
+	for activeRequests > 0 {
+		<-done
+		activeRequests--
 	}
 }
 
-func main() {
-	var proxyPtr = flag.String("proxy", "", "http proxy host:port")
-	flag.Usage = usage
-	flag.Parse()
-	if flag.NArg() < 1 {
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	log.Println("proxy:", *proxyPtr)
-
+func httpClient(proxy string) (*http.Client) {
 	// "Clients are safe for concurrent use by multiple goroutines."
 	transport :=  &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -104,15 +108,27 @@ func main() {
 		Transport: transport,
 		Jar: nil,
 	}
-	if *proxyPtr != "" {
-		proxyUrl, err := url.Parse(*proxyPtr)
+	if proxy != "" {
+		proxyUrl, err := url.Parse(proxy)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
 		}
 		transport.Proxy = http.ProxyURL(proxyUrl)
 	}
-	log.Printf("client.Transport: %+v", client.Transport)
+	return client
+}
+
+func main() {
+	var proxyPtr = flag.String("proxy", "", "http proxy url (http://host:port)")
+	flag.Usage = usage
+	flag.Parse()
+	if flag.NArg() < 1 {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	client := httpClient(*proxyPtr)
 
 	// open warcs for reading
 	warcs := make([]Warc, flag.NArg())
