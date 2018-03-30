@@ -25,7 +25,7 @@ type Warc struct {
 	reader *warc.Reader
 }
 
-func replayRequest(client *http.Client, record *warc.Record, done chan bool) {
+func replayRequest(client *http.Client, record *warc.Record, w Warc, offset int64, done chan bool) {
 	reader := bufio.NewReader(record.Content)
 	req, err := http.ReadRequest(reader)
 	if err != nil {
@@ -58,36 +58,45 @@ func replayRequest(client *http.Client, record *warc.Record, done chan bool) {
 		size += n
 	}
 	done <- true
-	log.Printf("%v (%v bytes) %v %v\n", res.Status, size, req.Method, req.URL)
+	log.Printf("%v (%v bytes) %v %v (%v offset %v)\n", res.Status, size,
+		req.Method, req.URL, w.name, offset)
 }
 
 func replayRequests(client *http.Client, w Warc, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	activeRequests := 0
-	done := make(chan bool)
+	requestDone := make(chan bool)
 
 	for {
-		if activeRequests >= 6 {
-			<-done
-			activeRequests--
+		// ftell()
+		offset, err := w.file.Seek(0, os.SEEK_CUR)
+		log.Println("offset:", offset)
+		if err == io.EOF {
+		     log.Fatal(err)
+		     os.Exit(1)
 		}
-
 		record, err := w.reader.ReadRecord()
 		if err == io.EOF {
-			break
+			break // end of warc
 		}
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
 		}
 		if record.Header.Get("warc-type") == "request" {
+			if activeRequests >= 6 {
+				// wait for an outstanding request to finish
+				<-requestDone
+				activeRequests--
+			}
 			activeRequests++
-			go replayRequest(client, record, done)
+			go replayRequest(client, record, w, offset, requestDone)
 		}
 	}
+	// wait for outstanding requests
 	for activeRequests > 0 {
-		<-done
+		<-requestDone
 		activeRequests--
 	}
 	log.Println("finished replaying", w.name)
