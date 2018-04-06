@@ -29,33 +29,30 @@ func replayRequest(client *http.Client, record *warc.Record, w Warc, done chan b
 	reader := bufio.NewReader(record.Content)
 	req, err := http.ReadRequest(reader)
 	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
+		log.Fatalln(err, "reading http request from warc record", record)
 	}
 	req.RequestURI = "" // "RequestURI can't be set in client requests"
 	req.URL, err = url.Parse(record.Header.Get("warc-target-uri"))
 	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
+		log.Fatalln(err, "parsing", req.URL)
 	}
 
 	res, err := client.Do(req)
 	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
+		log.Fatalln(err, "requesting", req.URL)
 	}
 
 	buf := make([]byte, 65536)
 	size := 0
 	for {
 		n, err := res.Body.Read(buf)
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			log.Fatal(err)
-			os.Exit(1)
+		if err != nil && err != io.EOF {
+			log.Fatalln(err, "downloading", req.URL)
 		}
 		size += n
+		if err == io.EOF {
+			break
+		}
 	}
 	done <- true
 	log.Printf("%v (%v bytes) %v %v %v \n", res.Status, size,
@@ -74,8 +71,7 @@ func replayRequests(client *http.Client, w Warc, wg *sync.WaitGroup) {
 			break // end of warc
 		}
 		if err != nil {
-			log.Fatal(err)
-			os.Exit(1)
+			log.Fatalln(err, "reading record from", w.name)
 		}
 		if record.Header.Get("warc-type") == "request" {
 			if activeRequests >= 6 {
@@ -113,8 +109,7 @@ func httpClient(proxy string) (*http.Client) {
 	if proxy != "" {
 		proxyUrl, err := url.Parse(proxy)
 		if err != nil {
-			log.Fatal(err)
-			os.Exit(1)
+			log.Fatalln(err, "parsing proxy url", proxy)
 		}
 		transport.Proxy = http.ProxyURL(proxyUrl)
 	}
@@ -137,14 +132,12 @@ func main() {
 	for i := 0; i < flag.NArg(); i++ {
 		file, err := os.Open(flag.Arg(i))
 		if err != nil {
-			log.Fatal(err)
-			os.Exit(1)
+			log.Fatalln(err, "opening", flag.Arg(i))
 		}
 		defer file.Close()
 		reader, err := warc.NewReader(file)
 		if err != nil {
-			log.Fatal(err)
-			os.Exit(1)
+			log.Fatalln(err, "creating warc reader for", flag.Arg(i))
 		}
 		warcs[i] = Warc{flag.Arg(i), file, reader}
 	}
