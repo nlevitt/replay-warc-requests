@@ -26,6 +26,8 @@ type Warc struct {
 }
 
 func replayRequest(client *http.Client, record *warc.Record, w Warc, done chan bool) {
+	defer func() { done <- true }()
+
 	reader := bufio.NewReader(record.Content)
 	req, err := http.ReadRequest(reader)
 	if err != nil {
@@ -34,12 +36,14 @@ func replayRequest(client *http.Client, record *warc.Record, w Warc, done chan b
 	req.RequestURI = "" // "RequestURI can't be set in client requests"
 	req.URL, err = url.Parse(record.Header.Get("warc-target-uri"))
 	if err != nil {
-		log.Fatalln(err, "parsing", req.URL)
+		log.Println(err, "parsing", req.URL)
+		return
 	}
 
 	res, err := client.Do(req)
 	if err != nil {
-		log.Fatalln(err, "requesting", req.URL)
+		log.Println(err, "requesting", req.URL)
+		return
 	}
 
 	buf := make([]byte, 65536)
@@ -47,16 +51,16 @@ func replayRequest(client *http.Client, record *warc.Record, w Warc, done chan b
 	for {
 		n, err := res.Body.Read(buf)
 		if err != nil && err != io.EOF {
-			log.Fatalln(err, "downloading", req.URL)
+			log.Println(err, "downloading", req.URL)
+			return
 		}
 		size += n
 		if err == io.EOF {
 			break
 		}
 	}
-	done <- true
-	log.Printf("%v (%v bytes) %v %v %v \n", res.Status, size,
-		req.Method, req.URL, w.name)
+	log.Printf("%v (%v bytes) %v %v %v\n", res.Status, size, req.Method,
+		req.URL, w.name)
 }
 
 func replayRequests(client *http.Client, w Warc, wg *sync.WaitGroup) {
