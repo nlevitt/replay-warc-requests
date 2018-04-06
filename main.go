@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/url"
 	"crypto/tls"
+	"time"
+	"runtime"
 )
 
 func usage() {
@@ -40,16 +42,17 @@ func replayRequest(client *http.Client, record *warc.Record, w Warc, done chan b
 		return
 	}
 
-	res, err := client.Do(req)
+	response, err := client.Do(req)
 	if err != nil {
 		log.Println(err, "requesting", req.URL)
 		return
 	}
+	defer response.Body.Close()
 
 	buf := make([]byte, 65536)
 	size := 0
 	for {
-		n, err := res.Body.Read(buf)
+		n, err := response.Body.Read(buf)
 		if err != nil && err != io.EOF {
 			log.Println(err, "downloading", req.URL)
 			return
@@ -59,8 +62,8 @@ func replayRequest(client *http.Client, record *warc.Record, w Warc, done chan b
 			break
 		}
 	}
-	log.Printf("%v (%v bytes) %v %v %v\n", res.Status, size, req.Method,
-		req.URL, w.name)
+	log.Printf("%v (%v bytes) %v %v %v\n", response.Status, size,
+		req.Method, req.URL, w.name)
 }
 
 func replayRequests(client *http.Client, w Warc, wg *sync.WaitGroup) {
@@ -146,11 +149,40 @@ func main() {
 		warcs[i] = Warc{flag.Arg(i), file, reader}
 	}
 
+	// kick off reading warcs and replaying everything
 	var wg sync.WaitGroup
 	for i := 0; i < len(warcs); i++ {
 		wg.Add(1)
 		go replayRequests(client, warcs[i], &wg)
 	}
+
+	// periodic stats reporting
+	ticker := time.NewTicker(5 * time.Second)
+	go func() {
+		for range ticker.C {
+			// log.Println("before GC:", runtime.NumGoroutine(), "goroutines")
+			// runtime.GC()
+			// log.Println("after GC:", runtime.NumGoroutine(), "goroutines")
+			log.Println(runtime.NumGoroutine(), "goroutines")
+			buf := make([]byte, 65536)
+			var n int
+			for {
+				n = runtime.Stack(buf, true)
+				if n >= len(buf) {
+					buf = make([]byte, 2*len(buf))
+				} else {
+					break
+				}
+			}
+			log.Println(n, "bytes of stack")
+			os.Stderr.Write(buf[:n])
+			// log.Println(buf[:n])
+		}
+	}()
+
+	// wait for replay goroutines to finish
 	wg.Wait()
+
+	ticker.Stop()
 	log.Println("all done")
 }
