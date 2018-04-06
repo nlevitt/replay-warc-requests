@@ -14,6 +14,7 @@ import (
 	"crypto/tls"
 	"time"
 	"runtime"
+	"io/ioutil"
 )
 
 func usage() {
@@ -49,18 +50,10 @@ func replayRequest(client *http.Client, record *warc.Record, w Warc, done chan b
 	}
 	defer response.Body.Close()
 
-	buf := make([]byte, 65536)
-	size := 0
-	for {
-		n, err := response.Body.Read(buf)
-		if err != nil && err != io.EOF {
-			log.Println(err, "downloading", req.URL)
-			return
-		}
-		size += n
-		if err == io.EOF {
-			break
-		}
+	size, err := io.Copy(ioutil.Discard, response.Body)
+	if err != nil {
+		log.Println(err, "downloading", req.URL)
+		return
 	}
 	log.Printf("%v (%v bytes) %v %v %v\n", response.Status, size,
 		req.Method, req.URL, w.name)
