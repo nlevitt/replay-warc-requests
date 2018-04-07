@@ -29,20 +29,8 @@ type Warc struct {
 	reader *warc.Reader
 }
 
-func replayRequest(client *http.Client, record *warc.Record, w Warc, done chan bool) {
+func replayRequest(client *http.Client, req *http.Request, w Warc, done chan bool) {
 	defer func() { done <- true }()
-
-	reader := bufio.NewReader(record.Content)
-	req, err := http.ReadRequest(reader)
-	if err != nil {
-		log.Fatalln(err, "reading http request from warc record", record)
-	}
-	req.RequestURI = "" // "RequestURI can't be set in client requests"
-	req.URL, err = url.Parse(record.Header.Get("warc-target-uri"))
-	if err != nil {
-		log.Println(err, "parsing", req.URL)
-		return
-	}
 
 	response, err := client.Do(req)
 	if err != nil {
@@ -75,13 +63,24 @@ func replayRequests(client *http.Client, w Warc, wg *sync.WaitGroup) {
 			log.Fatalln(err, "reading record from", w.name)
 		}
 		if record.Header.Get("warc-type") == "request" {
+			reader := bufio.NewReader(record.Content)
+			req, err := http.ReadRequest(reader)
+			if err != nil {
+				log.Fatalln(err, "reading http request from warc record", record)
+			}
+			req.RequestURI = "" // "RequestURI can't be set in client requests"
+			req.URL, err = url.Parse(record.Header.Get("warc-target-uri"))
+			if err != nil {
+				log.Fatalln(err, "parsing", req.URL)
+			}
+
 			if activeRequests >= 6 {
 				// wait for an outstanding request to finish
 				<-requestDone
 				activeRequests--
 			}
 			activeRequests++
-			go replayRequest(client, record, w, requestDone)
+			go replayRequest(client, req, w, requestDone)
 		}
 	}
 	// wait for outstanding requests
@@ -137,7 +136,7 @@ func main() {
 			log.Fatalln(err, "opening", flag.Arg(i))
 		}
 		defer file.Close()
-		reader, err := warc.NewReader(file)
+		reader, err := warc.NewReaderMode(file, warc.SequentialMode)
 		if err != nil {
 			log.Fatalln(err, "creating warc reader for", flag.Arg(i))
 		}
