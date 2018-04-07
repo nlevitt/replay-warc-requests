@@ -12,10 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"crypto/tls"
-	"time"
-	"runtime"
 	"io/ioutil"
-	"runtime/pprof"
 )
 
 func usage() {
@@ -118,7 +115,6 @@ func httpClient(proxy string) (*http.Client) {
 
 func main() {
 	var proxyPtr = flag.String("proxy", "", "http proxy url (http://host:port)")
-	var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 	flag.Usage = usage
 	flag.Parse()
 	if flag.NArg() < 1 {
@@ -150,45 +146,8 @@ func main() {
 		go replayRequests(client, warcs[i], &wg)
 	}
 
-	// periodic stats reporting
-	ticker := time.NewTicker(5 * time.Second)
-	go func() {
-		for range ticker.C {
-			// log.Println("before GC:", runtime.NumGoroutine(), "goroutines")
-			// runtime.GC()
-			// log.Println("after GC:", runtime.NumGoroutine(), "goroutines")
-			log.Println(runtime.NumGoroutine(), "goroutines")
-			buf := make([]byte, 65536)
-			var n int
-			for {
-				n = runtime.Stack(buf, true)
-				if n >= len(buf) {
-					buf = make([]byte, 2*len(buf))
-				} else {
-					break
-				}
-			}
-			log.Println(n, "bytes of stack")
-			os.Stderr.Write(buf[:n])
-			// log.Println(buf[:n])
-
-			if *memprofile != "" {
-				f, err := os.Create(*memprofile)
-				if err != nil {
-					log.Fatal("could not create memory profile: ", err)
-				}
-				runtime.GC() // get up-to-date statistics
-				if err := pprof.WriteHeapProfile(f); err != nil {
-					log.Fatal("could not write memory profile: ", err)
-				}
-				f.Close()
-			}
-		}
-	}()
-
 	// wait for replay goroutines to finish
 	wg.Wait()
 
-	ticker.Stop()
 	log.Println("all done")
 }
