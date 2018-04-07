@@ -15,6 +15,7 @@ import (
 	"time"
 	"runtime"
 	"io/ioutil"
+	"runtime/pprof"
 )
 
 func usage() {
@@ -118,6 +119,7 @@ func httpClient(proxy string) (*http.Client) {
 
 func main() {
 	var proxyPtr = flag.String("proxy", "", "http proxy url (http://host:port)")
+	var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 	flag.Usage = usage
 	flag.Parse()
 	if flag.NArg() < 1 {
@@ -170,6 +172,18 @@ func main() {
 			log.Println(n, "bytes of stack")
 			os.Stderr.Write(buf[:n])
 			// log.Println(buf[:n])
+
+			if *memprofile != "" {
+				f, err := os.Create(*memprofile)
+				if err != nil {
+					log.Fatal("could not create memory profile: ", err)
+				}
+				runtime.GC() // get up-to-date statistics
+				if err := pprof.WriteHeapProfile(f); err != nil {
+					log.Fatal("could not write memory profile: ", err)
+				}
+				f.Close()
+			}
 		}
 	}()
 
