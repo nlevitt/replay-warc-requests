@@ -15,11 +15,6 @@ import (
 	"io/ioutil"
 )
 
-func usage() {
-	fmt.Printf("Usage: %s [OPTIONS] WARCFILE...\n", os.Args[0])
-	flag.PrintDefaults()
-}
-
 type Warc struct {
 	name   string
 	file   *os.File
@@ -116,7 +111,10 @@ func httpClient(proxy string) (*http.Client) {
 
 func main() {
 	var proxyPtr = flag.String("proxy", "", "http proxy url (http://host:port)")
-	flag.Usage = usage
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] WARCFILE...\n", os.Args[0])
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 	if flag.NArg() < 1 {
 		flag.Usage()
