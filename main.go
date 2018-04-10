@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"crypto/tls"
 	"io/ioutil"
+	"bytes"
 )
 
 type Warc struct {
@@ -55,8 +56,16 @@ func replayRequests(client *http.Client, w Warc, wg *sync.WaitGroup) {
 			log.Panicln(err, "reading record from", w.name)
 		}
 		if record.Header.Get("warc-type") == "request" {
-			reader := bufio.NewReader(record.Content)
-			req, err := http.ReadRequest(reader)
+			// copy to buffer here because otherwise
+			// http.ReadRequest just wraps the input stream which
+			// is backed by the warc and we have a race condition
+			buf, err := ioutil.ReadAll(record.Content)
+			if err != nil {
+				log.Panicln(err, "reading content of warc record", record, "from", w.name)
+			}
+
+			br := bufio.NewReader(bytes.NewReader(buf))
+			req, err := http.ReadRequest(br)
 			if err != nil {
 				log.Panicln(err, "reading http request from warc record", record)
 
