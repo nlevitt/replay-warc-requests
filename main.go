@@ -57,18 +57,19 @@ func replayRequests(client *http.Client, w Warc, wg *sync.WaitGroup) {
 			break // end of warc
 		}
 		if err != nil {
-			log.Fatalln(err, "reading record from", w.name)
+			log.Panicln(err, "reading record from", w.name)
 		}
 		if record.Header.Get("warc-type") == "request" {
 			reader := bufio.NewReader(record.Content)
 			req, err := http.ReadRequest(reader)
 			if err != nil {
-				log.Fatalln(err, "reading http request from warc record", record)
+				log.Panicln(err, "reading http request from warc record", record)
+
 			}
 			req.RequestURI = "" // "RequestURI can't be set in client requests"
 			req.URL, err = url.Parse(record.Header.Get("warc-target-uri"))
 			if err != nil {
-				log.Fatalln(err, "parsing", req.URL)
+				log.Panicln(err, "parsing", req.URL)
 			}
 
 			if activeRequests >= 6 {
@@ -106,7 +107,7 @@ func httpClient(proxy string) (*http.Client) {
 	if proxy != "" {
 		proxyUrl, err := url.Parse(proxy)
 		if err != nil {
-			log.Fatalln(err, "parsing proxy url", proxy)
+			log.Panicln(err, "parsing proxy url", proxy)
 		}
 		transport.Proxy = http.ProxyURL(proxyUrl)
 	}
@@ -129,12 +130,12 @@ func main() {
 	for i := 0; i < flag.NArg(); i++ {
 		file, err := os.Open(flag.Arg(i))
 		if err != nil {
-			log.Fatalln(err, "opening", flag.Arg(i))
+			log.Panicln(err, "opening", flag.Arg(i))
 		}
 		defer file.Close()
 		reader, err := warc.NewReaderMode(file, warc.SequentialMode)
 		if err != nil {
-			log.Fatalln(err, "creating warc reader for", flag.Arg(i))
+			log.Panicln(err, "creating warc reader for", flag.Arg(i))
 		}
 		warcs[i] = Warc{flag.Arg(i), file, reader}
 	}
